@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── 常量 ──────────────────────────────────────────────
-CLAUDE_MODEL="claude-opus-4-7"
-GEMINI_MODEL="gemini-3.1-pro-preview"
-
 # ── 颜色 ──────────────────────────────────────────────
 BLUE='\033[34m'
 RED='\033[31m'
@@ -14,14 +10,24 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 # ── 参数验证 ───────────────────────────────────────────
-if [ $# -ne 2 ]; then
-    echo "用法：./debate.sh \"<辩题>\" <轮数>" >&2
-    echo "示例：./debate.sh \"AI 应该被赋予公民权利\" 3" >&2
+if [ $# -lt 2 ] || [ $# -gt 4 ]; then
+    echo "用法：./debate.sh \"<辩题>\" <轮数> [正方规格] [反方规格]" >&2
+    echo "" >&2
+    echo "规格格式：cli:model" >&2
+    echo "  支持的 CLI：claude, gemini" >&2
+    echo "" >&2
+    echo "示例：" >&2
+    echo "  ./debate.sh \"AI 应该被赋予公民权利\" 3" >&2
+    echo "  ./debate.sh \"AI rights\" 3 claude:claude-opus-4-7 gemini:gemini-3.1-pro-preview" >&2
+    echo "  ./debate.sh \"AI rights\" 3 claude:claude-opus-4-7 claude:claude-sonnet-4-6" >&2
+    echo "  ./debate.sh \"AI rights\" 3 gemini:gemini-2.5-pro gemini:gemini-3.1-pro-preview" >&2
     exit 1
 fi
 
 TOPIC="$1"
 ROUNDS="$2"
+PRO_SPEC="${3:-claude:claude-opus-4-7}"
+CON_SPEC="${4:-gemini:gemini-3.1-pro-preview}"
 
 if ! [[ "$ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "错误：轮数必须为正整数（收到：${ROUNDS}）" >&2
@@ -33,17 +39,38 @@ if (( ROUNDS > 20 )); then
     exit 1
 fi
 
+# ── 解析 cli:model 规格 ────────────────────────────────
+parse_spec() {
+    local spec="$1" field="$2"
+    if [[ "$spec" != *:* ]]; then
+        echo "错误：规格格式必须为 'cli:model'，收到：'${spec}'" >&2
+        exit 1
+    fi
+    if [ "$field" = "cli" ]; then
+        echo "${spec%%:*}"
+    else
+        echo "${spec#*:}"
+    fi
+}
+
+PRO_CLI=$(parse_spec "$PRO_SPEC" cli)
+PRO_MODEL=$(parse_spec "$PRO_SPEC" model)
+CON_CLI=$(parse_spec "$CON_SPEC" cli)
+CON_MODEL=$(parse_spec "$CON_SPEC" model)
+
+# Display names shown in terminal and saved to file
+PRO_NAME="${PRO_CLI}/${PRO_MODEL}"
+CON_NAME="${CON_CLI}/${CON_MODEL}"
+
 # ── 依赖检查 ───────────────────────────────────────────
 check_deps() {
     local missing=0
-    if ! command -v claude &>/dev/null; then
-        echo "错误：未找到 'claude' 命令，请安装 Claude CLI" >&2
-        missing=1
-    fi
-    if ! command -v gemini &>/dev/null; then
-        echo "错误：未找到 'gemini' 命令，请安装 Gemini CLI" >&2
-        missing=1
-    fi
+    for cli in "$PRO_CLI" "$CON_CLI"; do
+        if ! command -v "$cli" &>/dev/null; then
+            echo "错误：未找到 '${cli}' 命令，请先安装对应 CLI" >&2
+            missing=1
+        fi
+    done
     if [ "$missing" -eq 1 ]; then exit 1; fi
 }
 
@@ -57,25 +84,24 @@ print_separator() {
     echo -e "${BOLD}══════════════════════════════════════════${RESET}"
 }
 
-# ── 辅助：调用 Claude ─────────────────────────────────
-call_claude() {
-    local prompt="$1"
+# ── 辅助：统一调用入口 ────────────────────────────────
+call_model() {
+    local cli="$1" model="$2" prompt="$3"
     local response
-    if response=$(claude --model "$CLAUDE_MODEL" -p "$prompt" 2>&1); then
-        echo "$response"
+    if [ "$cli" = "claude" ]; then
+        if response=$(claude --model "$model" -p "$prompt" 2>&1); then
+            echo "$response"
+        else
+            echo "[调用失败：claude CLI 返回错误]"
+        fi
+    elif [ "$cli" = "gemini" ]; then
+        if response=$(gemini -m "$model" -p "$prompt" 2>&1); then
+            echo "$response"
+        else
+            echo "[调用失败：gemini CLI 返回错误]"
+        fi
     else
-        echo "[调用失败：Claude CLI 返回错误]"
-    fi
-}
-
-# ── 辅助：调用 Gemini ─────────────────────────────────
-call_gemini() {
-    local prompt="$1"
-    local response
-    if response=$(gemini -m "$GEMINI_MODEL" -p "$prompt" 2>&1); then
-        echo "$response"
-    else
-        echo "[调用失败：Gemini CLI 返回错误]"
+        echo "[调用失败：不支持的 CLI '${cli}'，仅支持 claude 和 gemini]"
     fi
 }
 
@@ -108,7 +134,7 @@ build_judge_prompt() {
     local full_debate="$1"
     printf '%s' "你是一场辩论的独立裁判。
 辩题：${TOPIC}
-正方：Claude，反方：Gemini
+正方：${PRO_NAME}，反方：${CON_NAME}
 
 以下是完整辩论记录：
 ${full_debate}
@@ -140,68 +166,66 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_FILE="${SCRIPT_DIR}/debate_${TIMESTAMP}.md"
 
-# 写入 Markdown 文件头
 {
     echo "# 辩论记录"
     echo ""
     echo "- **辩题：** ${TOPIC}"
     echo "- **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
     echo "- **轮数：** ${ROUNDS}"
-    echo "- **正方：** Claude (${CLAUDE_MODEL}) | **反方：** Gemini (${GEMINI_MODEL})"
+    echo "- **正方：** ${PRO_NAME} | **反方：** ${CON_NAME}"
     echo ""
     echo "---"
     echo ""
 } > "$OUTPUT_FILE"
 
-# 终端标题
 print_separator
-print_color "$BOLD" "  AI 辩论赛"
+print_color "$BOLD" "  LLM Arena"
 print_color "$BOLD" "  辩题：${TOPIC}"
-print_color "$BOLD" "  轮数：${ROUNDS}  模型：${CLAUDE_MODEL} vs ${GEMINI_MODEL}"
+print_color "$BOLD" "  正方：${PRO_NAME}  vs  反方：${CON_NAME}"
+print_color "$BOLD" "  轮数：${ROUNDS}"
 print_separator
 echo ""
 
-# 初始化历史变量
 HISTORY=""
 FULL_DEBATE=""
 
 # ── 辩论主循环 ────────────────────────────────────────
 for ((round=1; round<=ROUNDS; round++)); do
-    print_color "$BOLD" "── 第 ${round} 轮 ──────────────────────────────"
-    echo "## 第 ${round} 轮" >> "$OUTPUT_FILE"
+    print_color "$BOLD" "── Round ${round} / ${ROUNDS} ─────────────────────────"
+    echo "## Round ${round}" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
 
-    # 正方：Claude
+    # 正方
     PRO_PROMPT=$(build_debater_prompt "正方" "支持" "$HISTORY")
-    print_color "$BLUE" "[正方-Claude] 思考中..."
-    PRO_RESPONSE=$(call_claude "$PRO_PROMPT")
-    print_color "$BLUE" "[正方-Claude]"
+    print_color "$BLUE" "[正方] ${PRO_NAME} 思考中..."
+    PRO_RESPONSE=$(call_model "$PRO_CLI" "$PRO_MODEL" "$PRO_PROMPT")
+    print_color "$BLUE" "[正方] ${PRO_NAME}"
     echo "$PRO_RESPONSE"
     echo ""
     HISTORY+="[正方] ${PRO_RESPONSE}
 "
-    FULL_DEBATE+="[正方-Claude] ${PRO_RESPONSE}
+    FULL_DEBATE+="[正方] ${PRO_RESPONSE}
 "
     {
-        echo "**[正方-Claude]**"
+        echo "**[正方] ${PRO_NAME}**"
         echo ""
         echo "$PRO_RESPONSE"
         echo ""
     } >> "$OUTPUT_FILE"
 
-    # 反方：Gemini
+    # 反方
     CON_PROMPT=$(build_debater_prompt "反方" "反对" "$HISTORY")
-    print_color "$RED" "[反方-Gemini] 思考中..."
-    CON_RESPONSE=$(call_gemini "$CON_PROMPT")
-    print_color "$RED" "[反方-Gemini]"
+    print_color "$RED" "[反方] ${CON_NAME} 思考中..."
+    CON_RESPONSE=$(call_model "$CON_CLI" "$CON_MODEL" "$CON_PROMPT")
+    print_color "$RED" "[反方] ${CON_NAME}"
     echo "$CON_RESPONSE"
     echo ""
     HISTORY+="[反方] ${CON_RESPONSE}
 "
-    FULL_DEBATE+="[反方-Gemini] ${CON_RESPONSE}
+    FULL_DEBATE+="[反方] ${CON_RESPONSE}
 "
     {
-        echo "**[反方-Gemini]**"
+        echo "**[反方] ${CON_NAME}**"
         echo ""
         echo "$CON_RESPONSE"
         echo ""
@@ -222,33 +246,33 @@ echo ""
 
 JUDGE_PROMPT=$(build_judge_prompt "$FULL_DEBATE")
 
-# 裁判一：Claude
-print_color "$YELLOW" "[裁判-Claude] 评分中..."
-CLAUDE_VERDICT=$(call_claude "$JUDGE_PROMPT")
-print_color "$YELLOW" "[裁判-Claude]"
-echo "$CLAUDE_VERDICT"
+# 裁判一：正方模型
+print_color "$YELLOW" "[裁判-1] ${PRO_NAME} 评分中..."
+JUDGE1_VERDICT=$(call_model "$PRO_CLI" "$PRO_MODEL" "$JUDGE_PROMPT")
+print_color "$YELLOW" "[裁判-1] ${PRO_NAME}"
+echo "$JUDGE1_VERDICT"
 echo ""
-CLAUDE_WINNER=$(parse_winner "$CLAUDE_VERDICT")
+JUDGE1_WINNER=$(parse_winner "$JUDGE1_VERDICT")
 
 {
-    echo "**[裁判-Claude]**"
+    echo "**[裁判-1] ${PRO_NAME}**"
     echo ""
-    echo "$CLAUDE_VERDICT"
+    echo "$JUDGE1_VERDICT"
     echo ""
 } >> "$OUTPUT_FILE"
 
-# 裁判二：Gemini
-print_color "$YELLOW" "[裁判-Gemini] 评分中..."
-GEMINI_VERDICT=$(call_gemini "$JUDGE_PROMPT")
-print_color "$YELLOW" "[裁判-Gemini]"
-echo "$GEMINI_VERDICT"
+# 裁判二：反方模型
+print_color "$YELLOW" "[裁判-2] ${CON_NAME} 评分中..."
+JUDGE2_VERDICT=$(call_model "$CON_CLI" "$CON_MODEL" "$JUDGE_PROMPT")
+print_color "$YELLOW" "[裁判-2] ${CON_NAME}"
+echo "$JUDGE2_VERDICT"
 echo ""
-GEMINI_WINNER=$(parse_winner "$GEMINI_VERDICT")
+JUDGE2_WINNER=$(parse_winner "$JUDGE2_VERDICT")
 
 {
-    echo "**[裁判-Gemini]**"
+    echo "**[裁判-2] ${CON_NAME}**"
     echo ""
-    echo "$GEMINI_VERDICT"
+    echo "$JUDGE2_VERDICT"
     echo ""
 } >> "$OUTPUT_FILE"
 
@@ -260,17 +284,17 @@ print_separator
 print_color "$BOLD" "  最终结果"
 print_separator
 
-if [ -z "$CLAUDE_WINNER" ] && [ -z "$GEMINI_WINNER" ]; then
+if [ -z "$JUDGE1_WINNER" ] && [ -z "$JUDGE2_WINNER" ]; then
     FINAL_MSG="无法自动判断（两位裁判格式均异常），请查看上方评语"
     print_color "$YELLOW" "⚠ 裁判格式异常，无法解析胜负"
-elif [ -z "$CLAUDE_WINNER" ] || [ -z "$GEMINI_WINNER" ]; then
-    FINAL_MSG="无法自动判断（一方裁判格式异常：Claude裁判→${CLAUDE_WINNER}，Gemini裁判→${GEMINI_WINNER}），请查看上方评语"
+elif [ -z "$JUDGE1_WINNER" ] || [ -z "$JUDGE2_WINNER" ]; then
+    FINAL_MSG="无法自动判断（一方裁判格式异常：裁判1→${JUDGE1_WINNER}，裁判2→${JUDGE2_WINNER}），请查看上方评语"
     print_color "$YELLOW" "⚠ 一方裁判格式异常，无法解析胜负"
-elif [ "$CLAUDE_WINNER" = "$GEMINI_WINNER" ]; then
-    FINAL_MSG="${CLAUDE_WINNER} 获胜"
+elif [ "$JUDGE1_WINNER" = "$JUDGE2_WINNER" ]; then
+    FINAL_MSG="${JUDGE1_WINNER} 获胜"
     print_color "$GREEN" "最终结果：${FINAL_MSG}"
 else
-    FINAL_MSG="平局（裁判意见分歧：Claude裁判→${CLAUDE_WINNER}，Gemini裁判→${GEMINI_WINNER}）"
+    FINAL_MSG="平局（裁判意见分歧：裁判1→${JUDGE1_WINNER}，裁判2→${JUDGE2_WINNER}）"
     print_color "$GREEN" "最终结果：${FINAL_MSG}"
 fi
 

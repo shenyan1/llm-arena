@@ -54,15 +54,28 @@ Each round, both models receive the **full debate history** as context, so they 
 ## Usage
 
 ```bash
-./debate.sh "<topic>" <rounds>
+./debate.sh "<topic>" <rounds> [pro_spec] [con_spec]
 ```
+
+Debater spec format: `cli:model` (cli is `claude` or `gemini`)
 
 **Examples:**
 
 ```bash
+# Default: Claude (pro) vs Gemini (con)
 ./debate.sh "AI should be granted citizenship rights" 3
-./debate.sh "Carbon tax is the best solution to climate change" 5
-./debate.sh "Social media does more harm than good" 4
+
+# Claude vs Claude
+./debate.sh "Carbon tax is the best climate solution" 4 \
+  claude:claude-opus-4-7 claude:claude-sonnet-4-6
+
+# Gemini vs Gemini
+./debate.sh "Social media does more harm than good" 3 \
+  gemini:gemini-2.5-pro gemini:gemini-3.1-pro-preview
+
+# Swap sides: Gemini (pro) vs Claude (con)
+./debate.sh "Open source AI is safer than closed source" 5 \
+  gemini:gemini-3.1-pro-preview claude:claude-opus-4-7
 ```
 
 **Constraints:** 1–20 rounds.
@@ -95,16 +108,14 @@ If both judges agree → that side wins. If they disagree → draw.
 bash test_debate.sh
 ```
 
-## Configuration
+## Default Models
 
-Model names are defined as constants at the top of `debate.sh`:
+| Role | Default |
+|------|---------|
+| Pro (正方) | `claude:claude-opus-4-7` |
+| Con (反方) | `gemini:gemini-3.1-pro-preview` |
 
-```bash
-CLAUDE_MODEL="claude-opus-4-7"
-GEMINI_MODEL="gemini-3.1-pro-preview"
-```
-
-Change them to swap in different models.
+Override at runtime with the optional 3rd and 4th arguments.
 
 ## License
 
