@@ -179,10 +179,11 @@ OUTPUT_FILE="${SCRIPT_DIR}/debate_${TIMESTAMP}.md"
 } > "$OUTPUT_FILE"
 
 print_separator
-print_color "$BOLD" "  LLM Arena"
-print_color "$BOLD" "  辩题：${TOPIC}"
-print_color "$BOLD" "  正方：${PRO_NAME}  vs  反方：${CON_NAME}"
-print_color "$BOLD" "  轮数：${ROUNDS}"
+print_color "$BOLD" "  LLM Arena 🏟️"
+print_color "$BOLD" "  Topic / 辩题：${TOPIC}"
+print_color "$BOLD" "  Pro (正方)：${PRO_NAME}"
+print_color "$BOLD" "  Con (反方)：${CON_NAME}"
+print_color "$BOLD" "  Rounds / 轮数：${ROUNDS}"
 print_separator
 echo ""
 
@@ -191,15 +192,15 @@ FULL_DEBATE=""
 
 # ── 辩论主循环 ────────────────────────────────────────
 for ((round=1; round<=ROUNDS; round++)); do
-    print_color "$BOLD" "── Round ${round} / ${ROUNDS} ─────────────────────────"
+    print_color "$BOLD" "── Round ${round} / ${ROUNDS} (第${round}轮) ──────────────────"
     echo "## Round ${round}" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
 
     # 正方
     PRO_PROMPT=$(build_debater_prompt "正方" "支持" "$HISTORY")
-    print_color "$BLUE" "[正方] ${PRO_NAME} 思考中..."
+    print_color "$BLUE" "[Pro/正方] ${PRO_NAME} thinking..."
     PRO_RESPONSE=$(call_model "$PRO_CLI" "$PRO_MODEL" "$PRO_PROMPT")
-    print_color "$BLUE" "[正方] ${PRO_NAME}"
+    print_color "$BLUE" "[Pro/正方] ${PRO_NAME}"
     echo "$PRO_RESPONSE"
     echo ""
     HISTORY+="[正方] ${PRO_RESPONSE}
@@ -215,9 +216,9 @@ for ((round=1; round<=ROUNDS; round++)); do
 
     # 反方
     CON_PROMPT=$(build_debater_prompt "反方" "反对" "$HISTORY")
-    print_color "$RED" "[反方] ${CON_NAME} 思考中..."
+    print_color "$RED" "[Con/反方] ${CON_NAME} thinking..."
     CON_RESPONSE=$(call_model "$CON_CLI" "$CON_MODEL" "$CON_PROMPT")
-    print_color "$RED" "[反方] ${CON_NAME}"
+    print_color "$RED" "[Con/反方] ${CON_NAME}"
     echo "$CON_RESPONSE"
     echo ""
     HISTORY+="[反方] ${CON_RESPONSE}
@@ -240,16 +241,16 @@ echo "## 裁判评分" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 
 print_separator
-print_color "$BOLD" "  裁判评分阶段"
+print_color "$BOLD" "  Judging Phase / 裁判评分阶段"
 print_separator
 echo ""
 
 JUDGE_PROMPT=$(build_judge_prompt "$FULL_DEBATE")
 
 # 裁判一：正方模型
-print_color "$YELLOW" "[裁判-1] ${PRO_NAME} 评分中..."
+print_color "$YELLOW" "[Judge 1/裁判1] ${PRO_NAME} scoring..."
 JUDGE1_VERDICT=$(call_model "$PRO_CLI" "$PRO_MODEL" "$JUDGE_PROMPT")
-print_color "$YELLOW" "[裁判-1] ${PRO_NAME}"
+print_color "$YELLOW" "[Judge 1/裁判1] ${PRO_NAME}"
 echo "$JUDGE1_VERDICT"
 echo ""
 JUDGE1_WINNER=$(parse_winner "$JUDGE1_VERDICT")
@@ -262,9 +263,9 @@ JUDGE1_WINNER=$(parse_winner "$JUDGE1_VERDICT")
 } >> "$OUTPUT_FILE"
 
 # 裁判二：反方模型
-print_color "$YELLOW" "[裁判-2] ${CON_NAME} 评分中..."
+print_color "$YELLOW" "[Judge 2/裁判2] ${CON_NAME} scoring..."
 JUDGE2_VERDICT=$(call_model "$CON_CLI" "$CON_MODEL" "$JUDGE_PROMPT")
-print_color "$YELLOW" "[裁判-2] ${CON_NAME}"
+print_color "$YELLOW" "[Judge 2/裁判2] ${CON_NAME}"
 echo "$JUDGE2_VERDICT"
 echo ""
 JUDGE2_WINNER=$(parse_winner "$JUDGE2_VERDICT")
@@ -281,7 +282,7 @@ echo "---" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 
 print_separator
-print_color "$BOLD" "  最终结果"
+print_color "$BOLD" "  Final Result / 最终结果"
 print_separator
 
 if [ -z "$JUDGE1_WINNER" ] && [ -z "$JUDGE2_WINNER" ]; then
@@ -301,4 +302,4 @@ fi
 echo "## 最终结果：${FINAL_MSG}" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 print_separator
-print_color "$BOLD" "辩论记录已保存至：${OUTPUT_FILE}"
+print_color "$BOLD" "Debate saved / 辩论记录已保存至：${OUTPUT_FILE}"
