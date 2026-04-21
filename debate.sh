@@ -85,24 +85,32 @@ print_separator() {
 }
 
 # ── 辅助：统一调用入口 ────────────────────────────────
+CALL_MAX_RETRIES=5
+CALL_RETRY_DELAY=30
+
 call_model() {
     local cli="$1" model="$2" prompt="$3"
-    local response
-    if [ "$cli" = "claude" ]; then
-        if response=$(claude --model "$model" -p "$prompt" 2>&1); then
-            echo "$response"
-        else
-            echo "[调用失败：claude CLI 返回错误]"
-        fi
-    elif [ "$cli" = "gemini" ]; then
-        if response=$(gemini -m "$model" -p "$prompt" 2>&1); then
-            echo "$response"
-        else
-            echo "[调用失败：gemini CLI 返回错误]"
-        fi
-    else
+    local response attempt
+
+    if [ "$cli" != "claude" ] && [ "$cli" != "gemini" ]; then
         echo "[调用失败：不支持的 CLI '${cli}'，仅支持 claude 和 gemini]"
+        return
     fi
+
+    for ((attempt=1; attempt<=CALL_MAX_RETRIES; attempt++)); do
+        if [ "$cli" = "claude" ]; then
+            response=$(claude --model "$model" -p "$prompt" 2>/dev/null) && echo "$response" && return
+        else
+            response=$(gemini -m "$model" -p "$prompt" 2>/dev/null) && echo "$response" && return
+        fi
+
+        if [ "$attempt" -lt "$CALL_MAX_RETRIES" ]; then
+            print_color "$YELLOW" "  ⚠ ${cli} call failed (attempt ${attempt}/${CALL_MAX_RETRIES}), retrying in ${CALL_RETRY_DELAY}s..." >&2
+            sleep "$CALL_RETRY_DELAY"
+        fi
+    done
+
+    echo "[调用失败：${cli}/${model} 在 ${CALL_MAX_RETRIES} 次尝试后仍返回错误]"
 }
 
 # ── Prompt 构建：辩手 ─────────────────────────────────
